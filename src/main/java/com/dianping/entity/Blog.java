@@ -50,6 +50,11 @@ public class Blog implements Serializable {
     @TableField(exist = false)
     private String name;
     /**
+     * 判断某个用户是否已经点赞过了
+     */
+    @TableField(exist = false)
+    private Boolean isLike;
+    /**
      * 标题
      */
     private String title;

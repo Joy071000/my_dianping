@@ -25,8 +25,8 @@ public class UserController {
     @Resource
     private IUserService userService;
 
-//    @Resource
-//    private IUserInfoService userInfoService;
+    @Resource
+    private IUserInfoService userInfoService;
 
     /**
      * 发送短信验证码
@@ -64,26 +64,26 @@ public class UserController {
         return Result.ok(user);
     }
 
-//    @GetMapping("/info/{id}")
-//    public Result info(@PathVariable("id") Long userId){
-//        //查询详情
-//        User user = userService.getById(userId);
-//        if(user == null){
-//            return Result.ok();
-//        }
-//        UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
-//        return Result.ok(userDTO);
-//    }
-//
-//    @GetMapping("/{id}")
-//    public Result queryUserById(@PathVariable("id") Long userId){
-//        User user = userService.getById(userId);
-//        if(user == null){
-//            return Result.ok();
-//        }
-//        UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
-//        return Result.ok(userDTO);
-//    }
+    @GetMapping("/info/{id}")
+    public Result info(@PathVariable("id") Long userId){
+        //查询详情
+        User user = userService.getById(userId);
+        if(user == null){
+            return Result.ok();
+        }
+        UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
+        return Result.ok(userDTO);
+    }
+
+    @GetMapping("/{id}")
+    public Result queryUserById(@PathVariable("id") Long userId){
+        User user = userService.getById(userId);
+        if(user == null){
+            return Result.ok();
+        }
+        UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
+        return Result.ok(userDTO);
+    }
 
 //    @PostMapping("/sign")
 //    public Result sign(){

@@ -63,6 +63,13 @@ public class ShopController {
         return shopService.queryShopByType(typeId, current, x, y);
     }
 
+
+    /**
+     * 根据商铺名称关键字分页查询商铺信息
+     * @param name 商铺名称关键字
+     * @param current 页码
+     * @return 商铺列表
+     */
     @GetMapping("/of/name")
     public Result queryShopByName(
             @RequestParam(value = "name", required = false) String name,

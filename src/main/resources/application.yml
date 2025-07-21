@@ -22,6 +22,32 @@ spring:
           time-between-eviction-runs: 10s
   jackson:
     default-property-inclusion: non_null
+  rabbitmq:
+    host: localhost
+    username: hmdp
+    password: 123456
+    virtual-host: /hmdp
+    port: 5672
+    listener:
+      simple:
+        concurrency: 10
+        max-concurrency: 10
+        prefetch: 1
+        auto-startup: true
+#        关闭拒绝重新入队，而是进入私信队列
+        default-requeue-rejected: false
+#        关闭SpringBoot的重试机制，自己控制失败逻辑
+        retry:
+          enabled: false
+#          开启手动确认模式
+        acknowledge-mode: manual
+    template:
+      retry:
+        enabled: true
+        initial-interval: 1000ms
+        max-attempts: 3
+        max-interval: 5000ms
+        multiplier: 1
 mybatis-plus:
   type-aliases-package: com.dianping.entity # 别名扫描包
 logging:

@@ -1,31 +1,45 @@
 package com.dianping;
 
+import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.bean.copier.CopyOptions;
+import cn.hutool.core.lang.UUID;
+import cn.hutool.core.util.RandomUtil;
+import com.dianping.dto.UserDTO;
 import com.dianping.entity.Shop;
+import com.dianping.entity.User;
+import com.dianping.service.IUserService;
 import com.dianping.service.impl.ShopServiceImpl;
 import com.dianping.utils.CacheClient;
 import com.dianping.utils.RedisIdWorker;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.annotation.Before;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.geo.Point;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.connection.RedisGeoCommands;
+import org.springframework.util.FileCopyUtils;
 
 
 import java.awt.*;
-import java.util.ArrayList;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
-import static com.dianping.utils.RedisConstants.CACHE_SHOP_KEY;
-import static com.dianping.utils.RedisConstants.SHOP_GEO_KEY;
+import static com.dianping.utils.RedisConstants.*;
+import static com.dianping.utils.RedisConstants.LOGIN_USER_TTL;
+import static com.dianping.utils.SystemConstants.USER_NICK_NAME_PREFIX;
 
+@Slf4j
 @SpringBootTest
 class DianpingApplicationTests {
 
@@ -53,6 +67,12 @@ class DianpingApplicationTests {
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
+    @Resource
+    private RabbitTemplate rabbitTemplate;
+
+    @Resource
+    private IUserService userService;
+
     @BeforeEach
     void setUp() {
         RLock lock1 = redissonClient.getLock("order");
@@ -79,8 +99,10 @@ class DianpingApplicationTests {
 
     @Test
     void testSaveHotKeyWithLogicalTime(){
-        Shop shop = shopService.getById(4);
-        cacheClient.setWithLogicalExpire(CACHE_SHOP_KEY+4L, shop, 10L, TimeUnit.SECONDS);
+        for(int i = 1; i <= 14; i++) {
+            Shop shop = shopService.getById(i);
+            cacheClient.setWithLogicalExpire(CACHE_SHOP_KEY + (long) i, shop, 1000L, TimeUnit.SECONDS);
+        }
     }
 
     @Test
@@ -127,4 +149,67 @@ class DianpingApplicationTests {
             stringRedisTemplate.opsForGeo().add(key, locations);
         }
     }
+
+    @Test
+    void testPublisher(){
+        rabbitTemplate.convertAndSend("amq.direct", "my-seckill", "Hello World");
+    }
+
+    // 用来将用户token保存到文件的txt文件，并把token保存到redis
+    @Test
+    void insertUsers(){
+        //INSERT INTO `tb_user` VALUES (6, '13456762069', '', 'user_xn5wr3hpsv', '', '2022-02-07 17:54:10', '2022-02-07 17:54:10');
+        ClassPathResource phones = new ClassPathResource("phones.txt");
+        try(InputStream inputStream = phones.getInputStream();
+        InputStreamReader inputStreamReader = new InputStreamReader(inputStream, StandardCharsets.UTF_8);
+        BufferedReader bufferedReader = new BufferedReader(inputStreamReader)) {
+            String phone;
+            while((phone = bufferedReader.readLine()) != null){
+                User user = new User();
+                user.setNickName(USER_NICK_NAME_PREFIX + RandomUtil.randomString(10));
+                user.setPhone(phone);
+                userService.save(user);
+            }
+        }
+        catch (IOException e){
+            log.error(e.getMessage());
+        }
+    }
+
+    // 获取1000个tokens并保存到redis和文件
+    @Test
+    void saveTokens(){
+        String tokenFile = "tokens.txt";
+        ClassPathResource phones = new ClassPathResource("phones.txt");
+        try(InputStream inputStream = phones.getInputStream();
+        InputStreamReader inputStreamReader = new InputStreamReader(inputStream, StandardCharsets.UTF_8);
+        BufferedReader bufferedReader = new BufferedReader(inputStreamReader);
+            BufferedWriter writer = new BufferedWriter(new FileWriter(tokenFile))){
+            String phone;
+            while((phone = bufferedReader.readLine()) != null){
+                User user = userService.query().eq("phone", phone).one();
+
+                //7.保存用户到redis
+                //7.1 随机生成token，作为登陆令牌
+                String token = UUID.randomUUID().toString(true);
+                log.info("token:{}", token);
+                //7.2 将user转成HashMap存储
+                UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
+                Map<String, Object> userMap = BeanUtil.beanToMap(userDTO, new HashMap<>(),
+                        CopyOptions.create()
+                                .setIgnoreNullValue(true)
+                                .setFieldValueEditor((fieldName, fieldValue) -> fieldValue.toString()));
+                //7.3 存储到redis
+                String tokenKey = LOGIN_USER_KEY + token;
+                stringRedisTemplate.opsForHash().putAll(tokenKey, userMap);
+                //7.4 设置token的有效期
+                stringRedisTemplate.expire(tokenKey, LOGIN_USER_TTL, TimeUnit.MINUTES);
+                writer.write(token);
+                writer.newLine();
+            }
+        }catch (IOException e){
+            log.error(e.getMessage());
+        }
+    }
+
 }

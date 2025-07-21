@@ -5,6 +5,7 @@ import com.dianping.dto.Result;
 import com.dianping.dto.UserDTO;
 import com.dianping.entity.VoucherOrder;
 import com.dianping.mapper.VoucherOrderMapper;
+import com.dianping.rabbitmq.MQSender;
 import com.dianping.service.ISeckillVoucherService;
 import com.dianping.service.IVoucherOrderService;
 import com.dianping.service.IVoucherService;
@@ -28,6 +29,9 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static com.dianping.utils.MQConstants.SECKILL_EXCHANGE;
+import static com.dianping.utils.MQConstants.SECKILL_ROUTING_KEY_QUEUE;
+
 @Service
 @Slf4j
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
@@ -43,6 +47,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Resource
     private RedissonClient redissonClient;
 
+    @Resource
+    private MQSender mqSender;
+
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
     static {
         SECKILL_SCRIPT = new DefaultRedisScript<>();
@@ -50,53 +57,53 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         SECKILL_SCRIPT.setResultType(Long.class);
     }
 
-    //创建异步线程池
-    private static final ExecutorService SECKILL_EXECUTOR = Executors.newSingleThreadExecutor();
+//    //创建异步线程池
+//    private static final ExecutorService SECKILL_EXECUTOR = Executors.newSingleThreadExecutor();
+//
+//    //创建阻塞队列
+//    private static final BlockingQueue<VoucherOrder> voucherTasks = new ArrayBlockingQueue<>(1024 * 1024);
+//
+//    //有可能服务一开启就有用户下单，因此需要初始化
+//    @PostConstruct
+//    private void init(){
+//        SECKILL_EXECUTOR.submit(new VoucherOrderHandler());
+//    }
+//
+//
+//    private class VoucherOrderHandler implements Runnable {
+//        @Override
+//        public void run(){
+//            while (true) {
+//                try{
+//                    // 获取队列中的订单信息
+//                    VoucherOrder voucherOrder = voucherTasks.take();
+//                    // 创建订单
+//                    System.out.println("获取订单");
+//                    handleVoucherOrder(voucherOrder);
+//                } catch (Exception e){
+//                    log.error("预处理订单异常", e);
+//
+//                }
+//            }
+//        }
+//    }
+//
+//    private void handleVoucherOrder(VoucherOrder voucherOrder) {
+//        Long userId = voucherOrder.getUserId();
+//        RLock lock = redissonClient.getLock("lock:order" + userId);
+//        boolean locked = lock.tryLock();
+//        if(!locked){
+//            log.error("不允许重复下单");
+//            return;
+//        }
+//        try{
+//            proxy.createVoucherOrder(voucherOrder);
+//        }finally {
+//            lock.unlock();
+//        }
+//    }
 
-    //创建阻塞队列
-    private static final BlockingQueue<VoucherOrder> voucherTasks = new ArrayBlockingQueue<>(1024 * 1024);
-
-    //有可能服务一开启就有用户下单，因此需要初始化
-    @PostConstruct
-    private void init(){
-        SECKILL_EXECUTOR.submit(new VoucherOrderHandler());
-    }
-
-
-    private class VoucherOrderHandler implements Runnable {
-        @Override
-        public void run(){
-            while (true) {
-                try{
-                    // 获取队列中的订单信息
-                    VoucherOrder voucherOrder = voucherTasks.take();
-                    // 创建订单
-                    System.out.println("获取订单");
-                    handleVoucherOrder(voucherOrder);
-                } catch (Exception e){
-                    log.error("预处理订单异常", e);
-
-                }
-            }
-        }
-    }
-
-    private void handleVoucherOrder(VoucherOrder voucherOrder) {
-        Long userId = voucherOrder.getUserId();
-        RLock lock = redissonClient.getLock("lock:order" + userId);
-        boolean locked = lock.tryLock();
-        if(!locked){
-            log.error("不允许重复下单");
-            return;
-        }
-        try{
-            proxy.createVoucherOrder(voucherOrder);
-        }finally {
-            lock.unlock();
-        }
-    }
-
-    private IVoucherOrderService proxy;
+//    private IVoucherOrderService proxy;
     @Override
     public Result seckillVoucher(Long voucherId) {
         UserDTO user = UserHolder.getUser();
@@ -118,12 +125,16 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         voucherOrder.setId(orderId);
         voucherOrder.setVoucherId(voucherId);
         voucherOrder.setUserId(user.getId());
-        //获取代理对象
-        proxy = (IVoucherOrderService) AopContext.currentProxy();
-        voucherTasks.add(voucherOrder);
+//        //获取代理对象
+//        proxy = (IVoucherOrderService) AopContext.currentProxy();
+//        voucherTasks.add(voucherOrder);
+
+        //发送到消息队列
+        mqSender.sendOrder(SECKILL_EXCHANGE, SECKILL_ROUTING_KEY_QUEUE, voucherOrder);
 
         return Result.ok(orderId);
     }
+
 
     @Transactional
     @Override
@@ -139,11 +150,11 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                 .setSql("stock = stock - 1")
                 .eq("voucher_id", voucherOrder.getVoucherId()).gt("stock", 0).update();
         if(!success){
-            log.error("库存不足");
-            return;
+            throw new IllegalStateException("库存不足，下单失败！");
         }
         save(voucherOrder);
     }
+
 
     //    @Override
 //    public Result seckillVoucher(Long voucherId) {

@@ -68,6 +68,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
         //3.从session中获取验证码
 //        Object cacheCode = session.getAttribute("code");
+
+        //=======压力测试先注释掉验证码流程，后续需要恢复=========
         //3.从redis获取验证码
         String cacheCode = stringRedisTemplate.opsForValue().get(LOGIN_CODE_KEY + phone);
         String code = loginForm.getCode();
@@ -75,6 +77,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             //4.如果不一致则报错
             return Result.fail("验证码错误！");
         }
+
+        //====================恢复==========================
         //5.一致，根据手机号获取用户信息
         User user = query().eq("phone", phone).one();
 
